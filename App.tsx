@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import QuranReader from './components/QuranReader';
 import FactChecker from './components/FactChecker';
 import HadithExplorer from './components/HadithExplorer';
+import Bookmarks from './components/Bookmarks';
 import { View } from './types';
 
 const App: React.FC = () => {
@@ -17,6 +18,8 @@ const App: React.FC = () => {
         return <HadithExplorer />;
       case 'fact-check':
         return <FactChecker />;
+      case 'bookmarks':
+        return <Bookmarks />;
       default:
         return <QuranReader />;
     }
@@ -33,4 +36,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-   

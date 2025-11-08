@@ -1,5 +1,5 @@
 
-export type View = 'quran' | 'hadith' | 'fact-check';
+export type View = 'quran' | 'hadith' | 'fact-check' | 'bookmarks';
 
 export type LanguageOption = 'english' | 'arabic' | 'transliteration';
 
@@ -28,4 +28,9 @@ export interface Hadith {
   english: string;
   reference: string;
 }
-   
+
+export interface Bookmark {
+  surahNumber: number;
+  surahName: string;
+  ayah: Ayah;
+}
