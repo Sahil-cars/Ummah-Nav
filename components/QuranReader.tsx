@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { getSurahFromGemini, getAyahTafsir } from '../services/geminiService';
 import { Surah, Ayah, LanguageOption, Bookmark } from '../types';
 import { SURAHS } from '../constants';
+import { QURAN_DATA } from '../constants/quranWithTafsir';
+import { getSurahFromGemini } from '../services/geminiService';
+
 
 const BOOKMARKS_KEY = 'ummah_navigator_bookmarks';
 
@@ -69,24 +71,17 @@ interface AyahCardProps {
     surahName: string;
     language: LanguageOption;
     showTafsir: boolean;
-    onExplain: (ayahNumber: number, ayahText: string) => void;
-    isExplaining: boolean;
     isBookmarked: boolean;
     onToggleBookmark: () => void;
     onPlayPause: () => void;
     isPlaying: boolean;
 }
 
-const AyahCard: React.FC<AyahCardProps> = ({ ayah, surahName, language, showTafsir, onExplain, isExplaining, isBookmarked, onToggleBookmark, onPlayPause, isPlaying }) => {
+const AyahCard: React.FC<AyahCardProps> = ({ ayah, surahName, language, showTafsir, isBookmarked, onToggleBookmark, onPlayPause, isPlaying }) => {
     const [isCopied, setIsCopied] = useState(false);
 
     const handleCopy = useCallback(() => {
-        let textToCopy = '';
-        switch (language) {
-            case 'arabic': textToCopy = ayah.arabic; break;
-            case 'english': textToCopy = ayah.english; break;
-            case 'transliteration': textToCopy = ayah.transliteration; break;
-        }
+        let textToCopy = `${ayah.arabic}\n${ayah.transliteration}\n${ayah.english}`;
         navigator.clipboard.writeText(`${textToCopy}\n\n- Surah ${surahName}, Ayah ${ayah.number}`).then(() => {
             setIsCopied(true);
             setTimeout(() => setIsCopied(false), 2000);
@@ -126,19 +121,19 @@ const AyahCard: React.FC<AyahCardProps> = ({ ayah, surahName, language, showTafs
                     >
                         {isCopied ? <CheckIcon className="h-5 w-5 text-green-500" /> : <CopyIcon />}
                     </button>
-                    <button
-                        onClick={() => onExplain(ayah.number, ayah.english)}
-                        className="text-xs bg-teal-100 dark:bg-teal-800 text-teal-700 dark:text-teal-300 px-2 py-1 rounded-full hover:bg-teal-200 dark:hover:bg-teal-700 transition"
-                        disabled={isExplaining}
-                    >
-                        {isExplaining ? 'Loading...' : 'Explain'}
-                    </button>
                 </div>
             </div>
 
             {language === 'arabic' && <p className="text-2xl font-arabic text-right leading-loose mb-2">{ayah.arabic}</p>}
             {language === 'transliteration' && <p className="italic text-gray-700 dark:text-gray-300 mb-2">{ayah.transliteration}</p>}
             {language === 'english' && <p className="text-gray-800 dark:text-gray-200">{ayah.english}</p>}
+            {language === 'combined' && (
+                <div className="space-y-3">
+                    <p className="text-2xl font-arabic text-right leading-loose">{ayah.arabic}</p>
+                    <p className="italic text-gray-700 dark:text-gray-300">{ayah.transliteration}</p>
+                    <p className="text-gray-800 dark:text-gray-200">{ayah.english}</p>
+                </div>
+            )}
 
             {showTafsir && ayah.tafsir && (
                 <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -158,7 +153,6 @@ const QuranReader: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [language, setLanguage] = useState<LanguageOption>('english');
     const [showTafsir, setShowTafsir] = useState<boolean>(false);
-    const [explainingAyah, setExplainingAyah] = useState<number | null>(null);
     const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
     
     const [selectedReciter, setSelectedReciter] = useState(RECITERS[0].id);
@@ -188,6 +182,8 @@ const QuranReader: React.FC = () => {
 
     useEffect(() => {
         setBookmarks(getBookmarks());
+        // Load the first surah by default
+        loadSurah(selectedSurah);
     }, []);
 
     const stopAudio = useCallback(() => {
@@ -293,33 +289,43 @@ const QuranReader: React.FC = () => {
         setBookmarks(newBookmarks);
     }, [bookmarks, isBookmarked]);
 
-    const fetchSurah = useCallback(async () => {
+    const loadSurah = useCallback(async (surahNum: string) => {
         stopAudio();
         setLoading(true);
         setError(null);
         setSurahData(null);
         ayahRefs.current = {}; // Clear refs for new surah
-        const data = await getSurahFromGemini(parseInt(selectedSurah, 10));
-        if (data) {
-            setSurahData(data);
-        } else {
-            setError('Failed to fetch Surah. Please try again.');
-        }
-        setLoading(false);
-    }, [selectedSurah, stopAudio]);
+        
+        const surahNumInt = parseInt(surahNum, 10);
+        const localData = QURAN_DATA.find(s => s.number === surahNumInt);
 
-    const handleExplainAyah = useCallback(async (ayahNumber: number, ayahText: string) => {
-        if (!surahData) return;
-        setExplainingAyah(ayahNumber);
-        const tafsir = await getAyahTafsir(surahData.englishName, ayahNumber, ayahText);
-        setSurahData(prevData => {
-            if (!prevData) return null;
-            const newVerses = prevData.verses.map(v => v.number === ayahNumber ? { ...v, tafsir } : v);
-            return { ...prevData, verses: newVerses };
-        });
-        setShowTafsir(true);
-        setExplainingAyah(null);
-    }, [surahData]);
+        if (localData) {
+            // Data found in the static file, load it quickly.
+            setTimeout(() => {
+                setSurahData(localData);
+                setLoading(false);
+            }, 50);
+        } else {
+            // Data not found locally, fetch from Gemini as a fallback.
+            try {
+                const geminiData = await getSurahFromGemini(surahNumInt);
+                if (geminiData) {
+                    setSurahData(geminiData);
+                } else {
+                    setError(`Failed to load Surah ${surahNum}. The data was not found locally and could not be fetched from the AI.`);
+                }
+            } catch (e) {
+                console.error(e);
+                setError(`An error occurred while fetching Surah ${surahNum}. Please try again.`);
+            } finally {
+                setLoading(false);
+            }
+        }
+    }, [stopAudio]);
+
+    const handleReadSurah = () => {
+        loadSurah(selectedSurah);
+    }
 
     return (
         <div className="max-w-4xl mx-auto">
@@ -340,7 +346,7 @@ const QuranReader: React.FC = () => {
                     </div>
                     <div className="self-end">
                         <button
-                            onClick={fetchSurah}
+                            onClick={handleReadSurah}
                             disabled={loading}
                             className="w-full bg-teal-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-teal-700 disabled:bg-teal-400 transition-colors flex justify-center items-center"
                         >
@@ -368,10 +374,10 @@ const QuranReader: React.FC = () => {
                                     className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-teal-100 dark:bg-teal-800 text-teal-700 dark:text-teal-200 hover:bg-teal-200 dark:hover:bg-teal-700"
                                 >
                                     {isSurahPlaying ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
-                                    <span>{isSurahPlaying ? 'Pause' : 'Play Surah'}</span>
+                                    <span>{isSurahPlaying ? 'Pause' : 'Play'}</span>
                                 </button>
                                 <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
-                                    {(['english', 'arabic', 'transliteration'] as LanguageOption[]).map(lang => (
+                                    {(['english', 'arabic', 'transliteration', 'combined'] as LanguageOption[]).map(lang => (
                                         <button key={lang} onClick={() => setLanguage(lang)} className={`px-3 py-1 text-sm font-medium rounded-md capitalize transition ${language === lang ? 'bg-white dark:bg-gray-900 text-teal-600 shadow' : 'text-gray-600 dark:text-gray-300'}`}>
                                             {lang}
                                         </button>
@@ -397,15 +403,12 @@ const QuranReader: React.FC = () => {
                     </div>
                     <div className="space-y-4">
                         {surahData.verses.map(ayah => (
-                            // Fix: The ref callback should not return a value. Using a block statement `() => {}` instead of an expression `() => ...` fixes the issue.
                             <div key={ayah.number} ref={el => { ayahRefs.current[ayah.number] = el; }}>
                                 <AyahCard 
                                     ayah={ayah} 
                                     surahName={surahData.englishName}
                                     language={language} 
                                     showTafsir={showTafsir} 
-                                    onExplain={handleExplainAyah}
-                                    isExplaining={explainingAyah === ayah.number}
                                     isBookmarked={isBookmarked(surahData.number, ayah.number)}
                                     onToggleBookmark={() => toggleBookmark(surahData.number, surahData.englishName, ayah)}
                                     onPlayPause={() => handleSingleAyahPlay(surahData.number, ayah.number)}

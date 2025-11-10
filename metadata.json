@@ -1,5 +1,8 @@
 {
   "name": "Ummah Navigator",
   "description": "An Islamic Ai Tool",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
 }
